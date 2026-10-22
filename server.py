@@ -4,9 +4,15 @@ CareLoop - Streamable HTTP MCP & Web Server (server.py)
 Exposes the 5 CareLoop tools as MCP tools using the official MCP Python SDK (FastMCP / MCPServer)
 over Streamable HTTP (MCP spec 2025-11-25+), mounted at /mcp inside a Starlette application.
 
+The /api/chat endpoint acts as a real MCP client:
+  1. Uses intents.py strictly to determine the target tool and arguments.
+  2. Connects to this server's own /mcp endpoint via the official MCP SDK client (streamable_http_client).
+  3. Calls session.call_tool(tool, arguments) and returns the formatted response.
+  4. Records the last 10 MCP tool executions in an in-memory log.
+
 Web Routes:
-  - POST /api/chat      : Elder conversational chat endpoint (routes through intents.py)
-  - GET  /api/dashboard : Health adherence state, medication logs, and alerts JSON
+  - POST /api/chat      : Elder conversational chat endpoint (acting as MCP client)
+  - GET  /api/dashboard : Health adherence state, medication logs, alerts, and MCP log JSON
   - POST /api/reset     : Clears daily logs/alerts while preserving medication schedule
   - GET  /              : Serves static web dashboard from static/
   - POST /mcp           : Streamable HTTP MCP transport endpoint
@@ -14,6 +20,8 @@ Web Routes:
 
 from __future__ import annotations
 
+import json
+import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -27,7 +35,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 import uvicorn
 
-# Official MCP Python SDK imports (SDK v2 MCPServer with FastMCP alias)
+# Official MCP Python SDK server imports (SDK v2 MCPServer with FastMCP alias)
 try:
     from mcp.server.mcpserver import MCPServer as FastMCP
 except (ImportError, ModuleNotFoundError):
@@ -35,9 +43,16 @@ except (ImportError, ModuleNotFoundError):
 
 from mcp.server.transport_security import TransportSecuritySettings
 
+# Official MCP Python SDK client imports
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
 import tools
 from db import get_alerts, get_med_logs, get_schedule, get_wellness_logs, init_db, reset_db
-from intents import handle_message
+from intents import FALLBACK_REPLY, format_reply, match_intent
+
+# In-memory history of the last 10 MCP tool calls
+mcp_call_history: list[dict[str, Any]] = []
 
 # ---------------------------------------------------------------------------
 # FastMCP Server Initialization & Tool Declarations
@@ -113,19 +128,119 @@ def alert_family(reason: str, severity: str) -> dict[str, Any]:
 # Starlette Web Routes & ASGI Handlers
 # ---------------------------------------------------------------------------
 
+async def _invoke_mcp_client(
+    endpoint_url: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Connect to this server's own Streamable HTTP /mcp endpoint using the official
+    MCP Python SDK client (streamable_http_client + ClientSession).
+    """
+    async with streamable_http_client(endpoint_url) as (read_stream, write_stream):
+        async with ClientSession(read_stream, write_stream) as session:
+            await session.initialize()
+            call_res = await session.call_tool(tool_name, arguments)
+
+            # Extract structured result
+            if hasattr(call_res, "structured_content") and call_res.structured_content:
+                return call_res.structured_content
+            if call_res.content:
+                first = call_res.content[0]
+                if hasattr(first, "text") and first.text:
+                    try:
+                        return json.loads(first.text)
+                    except Exception:
+                        return {"raw": first.text}
+            return {}
+
+
 async def chat_endpoint(request: Request) -> JSONResponse:
-    """Handle elder conversational messages via rule-based intent router."""
+    """
+    Elder conversational chat endpoint.
+    Acts as a real MCP client:
+      - Uses intents.match_intent() only to determine tool & arguments.
+      - Connects via official MCP SDK client to /mcp.
+      - Invokes session.call_tool() and returns result + formatted mcp_call string.
+    """
     try:
         payload = await request.json()
     except Exception:
         payload = {}
+
     message = payload.get("message", "")
-    result = handle_message(message)
-    return JSONResponse(result)
+    intent = match_intent(message)
+
+    tool_name = intent.get("tool")
+    arguments = intent.get("arguments", {})
+
+    # If no tool matched, return fallback guidance
+    if not tool_name:
+        return JSONResponse(
+            {
+                "reply": intent.get("fallback_reply") or FALLBACK_REPLY,
+                "tool": None,
+                "arguments": {},
+                "mcp_call": None,
+                "data": None,
+                "mcp_logs": list(mcp_call_history),
+            }
+        )
+
+    # Resolve local server port to call own /mcp endpoint
+    port = request.url.port or int(os.environ.get("PORT", 8000))
+    host = "127.0.0.1"
+    mcp_endpoint_url = f"http://{host}:{port}/mcp"
+
+    # Format human-readable call string: e.g. "MCP call: log_wellness(mood='Dizzy', symptoms='I feel dizzy')"
+    arg_parts = [
+        f"{k}='{v}'" if isinstance(v, str) else f"{k}={v}"
+        for k, v in arguments.items()
+    ]
+    arg_str = ", ".join(arg_parts)
+    mcp_call_str = f"MCP call: {tool_name}({arg_str})"
+
+    now_hhmmss = datetime.now().strftime("%H:%M:%S")
+
+    try:
+        # Act as a real MCP client: call session.call_tool() over Streamable HTTP
+        result_data = await _invoke_mcp_client(mcp_endpoint_url, tool_name, arguments)
+        status = "success"
+    except Exception as exc:
+        print(f"[MCP Client Error] Failed to call {tool_name} over /mcp: {exc}")
+        result_data = {"error": str(exc)}
+        status = "error"
+
+    # Construct friendly spoken response
+    reply = format_reply(tool_name, arguments, result_data)
+
+    # Append to last 10 MCP calls log
+    log_entry = {
+        "timestamp": now_hhmmss,
+        "tool": tool_name,
+        "arguments": arguments,
+        "mcp_call": f"{tool_name}({arg_str})",
+        "status": status,
+        "preview": str(result_data)[:90],
+    }
+    mcp_call_history.append(log_entry)
+    if len(mcp_call_history) > 10:
+        mcp_call_history.pop(0)
+
+    return JSONResponse(
+        {
+            "reply": reply,
+            "tool": tool_name,
+            "arguments": arguments,
+            "mcp_call": mcp_call_str,
+            "data": result_data,
+            "mcp_logs": list(mcp_call_history),
+        }
+    )
 
 
 async def dashboard_endpoint(request: Request) -> JSONResponse:
-    """Return JSON state of today's schedule, intake adherence, wellness logs, and alerts."""
+    """Return JSON state of today's schedule, intake adherence, wellness logs, alerts, and MCP log."""
     today_str = datetime.now().strftime("%Y-%m-%d")
     summary = tools.get_daily_summary(date_str=today_str)
     schedule = get_schedule()
@@ -141,6 +256,7 @@ async def dashboard_endpoint(request: Request) -> JSONResponse:
             "med_logs": med_logs,
             "wellness_logs": wellness_logs,
             "alerts": alerts,
+            "mcp_logs": list(mcp_call_history),
         }
     )
 
@@ -148,10 +264,12 @@ async def dashboard_endpoint(request: Request) -> JSONResponse:
 async def reset_endpoint(request: Request) -> JSONResponse:
     """Clear today's logs and alerts while preserving medication schedule."""
     reset_db()
+    mcp_call_history.clear()
     return JSONResponse(
         {
             "status": "success",
             "message": "Logs and alerts cleared, medication schedule preserved.",
+            "mcp_logs": [],
         }
     )
 
@@ -215,8 +333,6 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    import os
-
     port = int(os.environ.get("PORT", 8000))
     host = os.environ.get("HOST", "0.0.0.0")
 
@@ -224,7 +340,7 @@ if __name__ == "__main__":
     print(f" CareLoop Server - Starting on http://{host}:{port}")
     print(f" - Web Dashboard    : http://localhost:{port}/")
     print(f" - MCP Endpoint     : http://localhost:{port}/mcp (Streamable HTTP)")
-    print(f" - API Chat         : http://localhost:{port}/api/chat (POST)")
+    print(f" - API Chat (MCP)   : http://localhost:{port}/api/chat (POST)")
     print(f" - API Dashboard    : http://localhost:{port}/api/dashboard (GET)")
     print(f" - API Reset        : http://localhost:{port}/api/reset (POST)")
     print("=" * 65)

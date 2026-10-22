@@ -33,14 +33,14 @@ CareLoop solves this by providing an ambient, conversational voice interface tha
 ```mermaid
 flowchart LR
     subgraph Senior["Parent Interface"]
-        Parent["Parent (Voice / Tap)"] --> AlexaSim["Alexa+ Voice Assistant"]
+        Parent["Parent (Voice / Tap)"] --> AlexaSim["Alexa+ Assistant"]
     end
 
     subgraph CoreServer["CareLoop Server (:8000)"]
-        AlexaSim -->|Streamable HTTP| MCP["MCP Server (/mcp)"]
-        AlexaSim -->|POST /api/chat| IntentRouter["Intent Router (intents.py)"]
-        IntentRouter --> MCPTools["5 CareLoop Tools"]
-        MCP --> MCPTools
+        AlexaSim -->|POST /api/chat| IntentRouter["Intent Router (intents.py)<br/>Extracts tool & args"]
+        IntentRouter --> MCPClient["MCP SDK Client<br/>streamable_http_client"]
+        MCPClient -->|session.call_tool\n/mcp| MCP["MCP Server (/mcp)"]
+        MCP --> MCPTools["5 CareLoop Tools"]
 
         subgraph Tools["Tools Layer (tools.py)"]
             MCPTools --> T1["log_medication()"]
@@ -55,6 +55,7 @@ flowchart LR
 
     subgraph Family["Caregiver View"]
         DB --> Dashboard["Family Dashboard<br/>(2s Live Polling)"]
+        MCPClient --> MCPLog["MCP Tool Calls Log<br/>(Last 10 calls)"]
         T5 --> AlertBanner["Pulsing Red Emergency Banner"]
     end
 ```
@@ -183,8 +184,9 @@ https://random-subdomain.trycloudflare.com/mcp
 
 ## 9. Honest Notes
 
-- **Real MCP Integration**: The `/mcp` endpoint is a full, spec-compliant **Streamable HTTP MCP server** (MCP spec 2025-11-25+) powered by the official Python MCP SDK (`mcp>=2.0.0` / `MCPServer`). Any external agent or production Alexa+ pipeline that supports MCP tool invocation can talk directly to `/mcp`.
-- **Local Alexa+ Simulator**: The web simulator on the left panel uses rule-based regex intent matching (`intents.py`) to map natural language to the underlying `tools.py` functions. This provides a zero-setup, zero-cost demonstration environment that works offline in the browser without requiring external LLM API tokens, paid subscriptions, or proprietary Amazon Echo hardware.
+- **Real End-to-End MCP Integration**: The `/mcp` endpoint is a full, spec-compliant **Streamable HTTP MCP server** (MCP spec 2025-11-25+) powered by the official Python MCP SDK (`mcp>=2.0.0` / `MCPServer`). The `/api/chat` route itself acts as a real MCP client using `mcp.client.streamable_http.streamable_http_client` and `session.call_tool()` to invoke all tools through the MCP protocol layer.
+- **Role of intents.py**: `intents.py` is strictly an intent and argument parser that maps elder utterances to tool names and argument payloads. It does not call database or tool logic directly.
+- **Local Alexa+ Simulator**: The web simulator on the left panel allows seniors and caregivers to test spoken-style interactions without requiring proprietary Amazon Echo hardware or paid cloud APIs.
 
 ---
 

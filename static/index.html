@@ -384,6 +384,27 @@
       color: var(--text-muted);
     }
 
+    .bubble-mcp-call {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      background: rgba(0, 0, 0, 0.05);
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      border-radius: 6px;
+      padding: 5px 9px;
+      margin-top: 6px;
+      color: var(--primary);
+      display: inline-block;
+      word-break: break-all;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .bubble-mcp-call {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(255, 255, 255, 0.14);
+        color: var(--primary);
+      }
+    }
+
     .bubble-tool {
       font-size: 11px;
       font-weight: 600;
@@ -734,6 +755,62 @@
       color: var(--text-muted);
     }
 
+    /* MCP Log Container */
+    .mcp-log-container {
+      background: var(--card-subtle);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 180px;
+      overflow-y: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .mcp-log-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      transition: background 0.15s;
+    }
+
+    .mcp-log-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .mcp-log-tag {
+      font-weight: 700;
+      color: var(--primary);
+      flex-shrink: 0;
+    }
+
+    .mcp-log-call {
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+
+    .mcp-log-time {
+      font-size: 11px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
     .empty-state {
       font-size: 13px;
       color: var(--text-muted);
@@ -901,6 +978,17 @@
             <div class="empty-state">No activities recorded today yet.</div>
           </div>
         </div>
+
+        <!-- MCP Tool Execution Log (Last 10 Calls) -->
+        <div>
+          <div class="section-title">
+            <span>MCP Tool Calls (Streamable HTTP)</span>
+            <span style="font-size: 11px; text-transform: none; font-weight: 600;">Last 10 calls via session.call_tool()</span>
+          </div>
+          <div class="mcp-log-container" id="mcpLogList">
+            <div class="empty-state">No MCP tool calls recorded yet.</div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1008,9 +1096,15 @@
         const data = await response.json();
         const reply = data.reply || "I didn't catch that.";
         const tool = data.tool || null;
+        const mcpCall = data.mcp_call || null;
 
-        // Append Alexa+ chat bubble
-        appendChatBubble(reply, 'alexa', tool);
+        // Append Alexa+ chat bubble with tool name and arguments sent
+        appendChatBubble(reply, 'alexa', tool, mcpCall);
+
+        // Immediate update of MCP log panel
+        if (data.mcp_logs) {
+          renderMcpLogs(data.mcp_logs);
+        }
 
         // Immediate dashboard refresh
         fetchDashboard();
@@ -1020,7 +1114,7 @@
       }
     }
 
-    function appendChatBubble(text, speaker, tool = null) {
+    function appendChatBubble(text, speaker, tool = null, mcpCall = null) {
       const stream = document.getElementById('chatStream');
       const bubble = document.createElement('div');
       bubble.className = `chat-bubble ${speaker}`;
@@ -1034,7 +1128,13 @@
       messageText.innerText = text;
       bubble.appendChild(messageText);
 
-      if (tool) {
+      // Show real tool name and arguments sent in the chat bubble
+      if (mcpCall) {
+        const callEl = document.createElement('div');
+        callEl.className = 'bubble-mcp-call';
+        callEl.innerText = mcpCall;
+        bubble.appendChild(callEl);
+      } else if (tool) {
         const toolBadge = document.createElement('span');
         toolBadge.className = 'bubble-tool';
         toolBadge.innerText = `⚙️ ${tool}`;
@@ -1175,6 +1275,33 @@
 
       // 4. Activity Timeline
       renderTimeline({ med_logs, wellness_logs, alerts });
+
+      // 5. MCP Tool Call Log (last 10 calls)
+      renderMcpLogs(data.mcp_logs || []);
+    }
+
+    function renderMcpLogs(logs) {
+      const container = document.getElementById('mcpLogList');
+      if (!logs || logs.length === 0) {
+        container.innerHTML = '<div class="empty-state">No MCP tool calls recorded yet.</div>';
+        return;
+      }
+
+      container.innerHTML = '';
+      // Newest calls first
+      const reversed = [...logs].reverse();
+      reversed.forEach(ev => {
+        const item = document.createElement('div');
+        item.className = 'mcp-log-item';
+        item.innerHTML = `
+          <div class="mcp-log-left">
+            <span class="mcp-log-tag">⚡ MCP</span>
+            <span class="mcp-log-call" title="${escapeHtml(ev.mcp_call)}">${escapeHtml(ev.mcp_call)}</span>
+          </div>
+          <span class="mcp-log-time">${escapeHtml(ev.timestamp || '')}</span>
+        `;
+        container.appendChild(item);
+      });
     }
 
     function renderTimeline({ med_logs, wellness_logs, alerts }) {

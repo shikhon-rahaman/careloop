@@ -69,10 +69,21 @@ def main() -> None:
             if use_live_http:
                 res = send_via_http(msg)
             else:
-                from intents import handle_message
-                res = handle_message(msg)
+                from intents import match_intent
+                intent = match_intent(msg)
+                tool = intent["tool"]
+                args = intent["arguments"]
+                arg_str = ", ".join(f"{k}='{v}'" if isinstance(v, str) else f"{k}={v}" for k, v in args.items())
+                res = {
+                    "tool": tool,
+                    "mcp_call": f"MCP call: {tool}({arg_str})" if tool else None,
+                    "reply": f"Routed to {tool}" if tool else "Fallback guidance",
+                }
 
-            print(f"    Tool : {res.get('tool')}")
+            if res.get("mcp_call"):
+                print(f"    MCP  : {res.get('mcp_call')}")
+            else:
+                print(f"    Tool : {res.get('tool')}")
             print(f"    Reply: \"{res.get('reply')}\"\n")
         except Exception as exc:
             print(f"    Error: {exc}\n")

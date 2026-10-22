@@ -1,26 +1,22 @@
 """
-CareLoop - Intent Recognition and Conversational Handler (intents.py)
+CareLoop - Intent Recognition and Argument Extractor (intents.py)
 
-Rule-based, case-insensitive conversational interface that maps elder natural language
-utterances to underlying CareLoop tools:
-  - "took/had/taken/ate" + medicine -> log_medication
-  - "feel/feeling/not well/dizzy/pain/fell/fall/bleeding/breathe" -> log_wellness
-  - "did I take/what's left/missed/miss/missing" -> check_missed_meds
-  - "how was my day/summary" -> get_daily_summary
-  - fallback -> friendly guidance prompt
+Rule-based, case-insensitive conversational classifier that maps elder natural language
+utterances to MCP tool names and argument payloads:
+  - "took/had/taken/ate" + medicine -> ("log_medication", {"name": ...})
+  - "feel/feeling/not well/dizzy/pain/fell/..." -> ("log_wellness", {"mood": ..., "symptoms": ...})
+  - "did I take/what's left/missed/..." -> ("check_missed_meds", {})
+  - "how was my day/summary" -> ("get_daily_summary", {})
+  - fallback -> (None, {})
+
+Note: intents.py does NOT call tools.py directly. The server connects as an MCP client
+to /mcp and calls the tool via session.call_tool().
 """
 
 from __future__ import annotations
 
 import re
 from typing import Any
-
-from tools import (
-    check_missed_meds,
-    get_daily_summary,
-    log_medication,
-    log_wellness,
-)
 
 # Regex triggers for conversational intents
 MED_INTENT_PATTERN = re.compile(r"\b(took|had|taken|ate)\b", re.IGNORECASE)
@@ -37,7 +33,7 @@ SUMMARY_INTENT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Standard fallback response
+# Standard fallback guidance
 FALLBACK_REPLY = "I can log medicines, check how you feel, or give a summary."
 
 
@@ -76,7 +72,6 @@ def _extract_wellness_info(text: str) -> tuple[str, str]:
     if "breathe" in lower or "breath" in lower:
         return "Short of breath", text.strip()
 
-    # Generic feel / feeling extraction
     feel_match = re.search(r"\b(?:feel|feeling)\s+(.+?)(?:\.|\!|\?|$)", text, re.IGNORECASE)
     if feel_match:
         extracted_state = feel_match.group(1).strip()
@@ -85,128 +80,131 @@ def _extract_wellness_info(text: str) -> tuple[str, str]:
     return "Neutral", text.strip()
 
 
-def handle_message(text: str) -> dict[str, Any]:
+def match_intent(text: str) -> dict[str, Any]:
     """
-    Process an elder conversational message and route to the corresponding tool.
-
-    Parameters:
-        text: Input message from the elder or caregiver.
+    Analyze elder text and return the matched MCP tool and arguments.
 
     Returns:
-        dict with keys:
-          - 'reply': Friendly, spoken-style, short response.
-          - 'tool': Name of tool called (or None for fallback).
-          - 'data': (optional) underlying tool response object.
+        dict with:
+          - 'tool': tool name str or None
+          - 'arguments': dict of keyword arguments to pass to session.call_tool()
+          - 'fallback_reply': guidance string if no tool matched
     """
     if not text or not text.strip():
         return {
-            "reply": FALLBACK_REPLY,
             "tool": None,
+            "arguments": {},
+            "fallback_reply": FALLBACK_REPLY,
         }
 
     clean_text = text.strip()
     lower = clean_text.lower()
 
-    # 1. Medication Intake Intent ("took/had/taken/ate" + medicine)
+    # 1. Medication Intake Intent
     if MED_INTENT_PATTERN.search(lower):
         med_candidate = _extract_medicine_name(clean_text)
-        try:
-            result = log_medication(name=med_candidate)
-            name = result["name"]
-            scheduled = result.get("matched_scheduled_name")
-            if scheduled:
-                reply = f"I've logged your {name}. Great job taking your medication on time!"
-            else:
-                reply = f"I've logged that you took {name}."
-            return {
-                "reply": reply,
-                "tool": "log_medication",
-                "data": result,
-            }
-        except Exception as exc:
-            return {
-                "reply": f"I couldn't record that medication: {exc}",
-                "tool": "log_medication",
-            }
+        return {
+            "tool": "log_medication",
+            "arguments": {"name": med_candidate},
+            "fallback_reply": None,
+        }
 
-    # 2. Wellness Check-in Intent ("feel/feeling/not well/dizzy/pain/fell/fall/bleeding/breathe")
+    # 2. Wellness Check-in Intent
     if WELLNESS_INTENT_PATTERN.search(lower):
         mood, symptoms = _extract_wellness_info(clean_text)
-        try:
-            result = log_wellness(mood=mood, symptoms=symptoms)
-            if result.get("alert_triggered"):
-                reply = (
-                    "I've noted that you're not feeling well and alerted your family "
-                    "right away to check in. Please stay seated and rest."
-                )
-            else:
-                reply = f"Thank you for checking in. I've noted that you're feeling {mood.lower()}."
-            return {
-                "reply": reply,
-                "tool": "log_wellness",
-                "data": result,
-            }
-        except Exception as exc:
-            return {
-                "reply": f"I couldn't log your wellness check: {exc}",
-                "tool": "log_wellness",
-            }
+        return {
+            "tool": "log_wellness",
+            "arguments": {"mood": mood, "symptoms": symptoms},
+            "fallback_reply": None,
+        }
 
-    # 3. Missed Meds Check Intent ("did I take/what's left/missed/miss/missing")
+    # 3. Missed Meds Intent
     if MISSED_INTENT_PATTERN.search(lower):
-        try:
-            result = check_missed_meds()
-            missed = result.get("missed", [])
-            upcoming = result.get("upcoming", [])
-            if missed:
-                missed_names = ", ".join(m["name"] for m in missed)
-                reply = f"You haven't logged your {missed_names} yet today. Please take it when you can!"
-            elif upcoming:
-                upcoming_names = ", ".join(f"{u['name']} at {u['scheduled_time']}" for u in upcoming)
-                reply = f"You are up to date! Still scheduled for later: {upcoming_names}."
-            else:
-                reply = "You're all caught up! All scheduled medications for today have been taken."
-            return {
-                "reply": reply,
-                "tool": "check_missed_meds",
-                "data": result,
-            }
-        except Exception as exc:
-            return {
-                "reply": f"I couldn't check your schedule: {exc}",
-                "tool": "check_missed_meds",
-            }
+        return {
+            "tool": "check_missed_meds",
+            "arguments": {},
+            "fallback_reply": None,
+        }
 
-    # 4. Daily Summary Intent ("how was my day/summary")
+    # 4. Daily Summary Intent
     if SUMMARY_INTENT_PATTERN.search(lower):
-        try:
-            result = get_daily_summary()
-            taken_cnt = len(result.get("taken", []))
-            missed_cnt = len(result.get("missed", []))
-            alerts_cnt = len(result.get("alerts", []))
-            if alerts_cnt > 0:
-                reply = (
-                    f"Today you took {taken_cnt} medications with {missed_cnt} missed. "
-                    f"There were {alerts_cnt} safety alerts flagged."
-                )
-            else:
-                reply = (
-                    f"You've had a solid day: {taken_cnt} medications taken, "
-                    f"{missed_cnt} missed, and zero safety alerts."
-                )
-            return {
-                "reply": reply,
-                "tool": "get_daily_summary",
-                "data": result,
-            }
-        except Exception as exc:
-            return {
-                "reply": f"I couldn't generate your summary: {exc}",
-                "tool": "get_daily_summary",
-            }
+        return {
+            "tool": "get_daily_summary",
+            "arguments": {},
+            "fallback_reply": None,
+        }
 
-    # 5. Fallback Response
+    # 5. Fallback
     return {
-        "reply": FALLBACK_REPLY,
         "tool": None,
+        "arguments": {},
+        "fallback_reply": FALLBACK_REPLY,
+    }
+
+
+def format_reply(
+    tool: str | None,
+    arguments: dict[str, Any],
+    result_data: dict[str, Any] | None,
+) -> str:
+    """
+    Construct a friendly spoken response for the elder based on the MCP tool result.
+    """
+    if not tool or not result_data:
+        return FALLBACK_REPLY
+
+    if tool == "log_medication":
+        name = result_data.get("name", arguments.get("name", "medication"))
+        matched = result_data.get("matched_scheduled_name")
+        if matched:
+            return f"I've logged your {name}. Great job taking your medication on time!"
+        return f"I've logged that you took {name}."
+
+    if tool == "log_wellness":
+        if result_data.get("alert_triggered"):
+            return (
+                "I've noted that you're not feeling well and alerted your family "
+                "right away to check in. Please stay seated and rest."
+            )
+        mood = arguments.get("mood", "recorded")
+        return f"Thank you for checking in. I've noted that you're feeling {mood.lower()}."
+
+    if tool == "check_missed_meds":
+        missed = result_data.get("missed", [])
+        upcoming = result_data.get("upcoming", [])
+        if missed:
+            missed_names = ", ".join(m["name"] for m in missed)
+            return f"You haven't logged your {missed_names} yet today. Please take it when you can!"
+        if upcoming:
+            upcoming_names = ", ".join(f"{u['name']} at {u['scheduled_time']}" for u in upcoming)
+            return f"You are up to date! Still scheduled for later: {upcoming_names}."
+        return "You're all caught up! All scheduled medications for today have been taken."
+
+    if tool == "get_daily_summary":
+        taken_cnt = len(result_data.get("taken", []))
+        missed_cnt = len(result_data.get("missed", []))
+        alerts_cnt = len(result_data.get("alerts", []))
+        if alerts_cnt > 0:
+            return (
+                f"Today you took {taken_cnt} medications with {missed_cnt} missed. "
+                f"There were {alerts_cnt} safety alerts flagged."
+            )
+        return (
+            f"You've had a solid day: {taken_cnt} medications taken, "
+            f"{missed_cnt} missed, and zero safety alerts."
+        )
+
+    return f"Completed {tool}."
+
+
+# Backwards compatibility helper
+def handle_message(text: str) -> dict[str, Any]:
+    """Helper that routes via match_intent for testing or non-MCP fallback."""
+    intent = match_intent(text)
+    if not intent["tool"]:
+        return {"reply": intent["fallback_reply"], "tool": None, "arguments": {}}
+    return {
+        "reply": f"Routed to {intent['tool']}",
+        "tool": intent["tool"],
+        "arguments": intent["arguments"],
     }
