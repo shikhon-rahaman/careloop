@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CareLoop - Alexa+ that looks after your parents</title>
+  <style>
+    /* -----------------------------------------------------------------------
+       Design Tokens & Warm Theme (Light Mode Default)
+       ----------------------------------------------------------------------- */
+    :root {
+      --bg: #faf7f2;
+      --card-bg: #ffffff;
+      --card-subtle: #f6f3ec;
+      --card-border: #e8e2d8;
+      --text: #26221f;
+      --text-muted: #736b63;
+      --text-light: #9c9288;
+      
+      /* Warm Accents */
+      --primary: #d9531e;
+      --primary-hover: #b84314;
+      --primary-light: #fbeee7;
+      
+      --alexa-bubble: #eef2f7;
+      --alexa-bubble-border: #d7e0ea;
+      --parent-bubble: #faeade;
+      --parent-bubble-border: #f4cfb8;
+
+      /* Adherence Status Colors */
+      --status-green-bg: #eaf6ed;
+      --status-green-border: #9edcb0;
+      --status-green-text: #1b6330;
+      --status-green-dot: #2e944b;
+
+      --status-amber-bg: #fef7ea;
+      --status-amber-border: #fadba2;
+      --status-amber-text: #8c5307;
+      --status-amber-dot: #d97706;
+
+      --status-red-bg: #fdeeee;
+      --status-red-border: #f7b6b6;
+      --status-red-text: #9f1c1c;
+      --status-red-dot: #dc2626;
+
+      --shadow-sm: 0 1px 3px rgba(44, 33, 24, 0.06);
+      --shadow-md: 0 4px 12px rgba(44, 33, 24, 0.08);
+      --shadow-lg: 0 8px 24px rgba(44, 33, 24, 0.12);
+      --radius-sm: 10px;
+      --radius-md: 16px;
+      --radius-lg: 24px;
+    }
+
+    /* -----------------------------------------------------------------------
+       Dark Mode Tokens (prefers-color-scheme: dark)
+       ----------------------------------------------------------------------- */
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #171513;
+        --card-bg: #23201d;
+        --card-subtle: #2d2925;
+        --card-border: #3d3732;
+        --text: #f3efe9;
+        --text-muted: #ada397;
+        --text-light: #7c7368;
+
+        --primary: #f06c35;
+        --primary-hover: #fa814d;
+        --primary-light: #38241b;
+
+        --alexa-bubble: #282f3a;
+        --alexa-bubble-border: #394454;
+        --parent-bubble: #3d291e;
+        --parent-bubble-border: #5a3c2b;
+
+        --status-green-bg: #142e1d;
+        --status-green-border: #225c34;
+        --status-green-text: #7ee09b;
+        --status-green-dot: #34d399;
+
+        --status-amber-bg: #33230d;
+        --status-amber-border: #634316;
+        --status-amber-text: #fed787;
+        --status-amber-dot: #f59e0b;
+
+        --status-red-bg: #381515;
+        --status-red-border: #6b2424;
+        --status-red-text: #fca5a5;
+        --status-red-dot: #ef4444;
+
+        --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+        --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.55);
+      }
+    }
+
+    /* -----------------------------------------------------------------------
+       Global Layout
+       ----------------------------------------------------------------------- */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 16px;
+    }
+
+    header {
+      max-width: 1240px;
+      margin: 0 auto 16px auto;
+      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 20px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-icon {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, #d9531e, #f06c35);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 20px;
+      box-shadow: 0 2px 8px rgba(217, 83, 30, 0.3);
+    }
+
+    .brand-title {
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .brand-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .header-pills {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge-sync {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--status-green-dot);
+      background: var(--status-green-bg);
+      border: 1px solid var(--status-green-border);
+      padding: 5px 10px;
+      border-radius: 20px;
+    }
+
+    .sync-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--status-green-dot);
+      border-radius: 50%;
+      animation: pulse-dot 1.8s infinite;
+    }
+
+    @keyframes pulse-dot {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+
+    .btn-reset-demo {
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid var(--card-border);
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s;
+    }
+    .btn-reset-demo:hover {
+      background: var(--card-subtle);
+      color: var(--text);
+      border-color: var(--text-muted);
+    }
+
+    /* -----------------------------------------------------------------------
+       Main Panels Grid (2-column on desktop, 1-column on mobile)
+       ----------------------------------------------------------------------- */
+    .app-container {
+      max-width: 1240px;
+      margin: 0 auto;
+      width: 100%;
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 920px) {
+      .app-container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .panel-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-height: 600px;
+    }
+
+    .panel-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card-subtle);
+    }
+
+    .panel-title {
+      font-size: 17px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    /* -----------------------------------------------------------------------
+       Left Panel: Parent (Alexa+ simulator)
+       ----------------------------------------------------------------------- */
+    .parent-panel-body {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      padding: 18px 20px;
+      gap: 14px;
+    }
+
+    /* 4 Tap Chips */
+    .tap-chips-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    .tap-chips-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    @media (max-width: 480px) {
+      .tap-chips-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .tap-chip {
+      background: var(--card-subtle);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      cursor: pointer;
+      text-align: left;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.18s ease-in-out;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .tap-chip:hover {
+      border-color: var(--primary);
+      background: var(--primary-light);
+      transform: translateY(-1px);
+    }
+
+    .tap-chip:active {
+      transform: translateY(0);
+    }
+
+    /* Chat Messages Box */
+    .chat-stream {
+      flex: 1;
+      min-height: 280px;
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 12px;
+      background: var(--card-subtle);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-md);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      scroll-behavior: smooth;
+    }
+
+    .chat-bubble {
+      max-width: 86%;
+      padding: 14px 18px;
+      border-radius: var(--radius-md);
+      font-size: 18px; /* Senior-friendly large text */
+      line-height: 1.4;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      animation: fadeIn 0.25s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .chat-bubble.alexa {
+      align-self: flex-start;
+      background: var(--alexa-bubble);
+      border: 1px solid var(--alexa-bubble-border);
+      color: var(--text);
+      border-bottom-left-radius: 4px;
+    }
+
+    .chat-bubble.parent {
+      align-self: flex-end;
+      background: var(--parent-bubble);
+      border: 1px solid var(--parent-bubble-border);
+      color: var(--text);
+      border-bottom-right-radius: 4px;
+    }
+
+    .bubble-speaker {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+    }
+
+    .bubble-tool {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--primary);
+      margin-top: 4px;
+      display: inline-block;
+    }
+
+    /* Input Bar with Web Speech API Mic */
+    .input-bar-container {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-top: auto;
+    }
+
+    .input-box {
+      flex: 1;
+      padding: 14px 18px;
+      font-size: 17px;
+      border-radius: var(--radius-md);
+      border: 1.5px solid var(--card-border);
+      background: var(--card-bg);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .input-box:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(217, 83, 30, 0.15);
+    }
+
+    .btn-mic {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      border: 1.5px solid var(--card-border);
+      background: var(--card-bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+
+    .btn-mic:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+      background: var(--primary-light);
+    }
+
+    .btn-mic.listening {
+      background: var(--status-red-dot);
+      color: white;
+      border-color: var(--status-red-dot);
+      animation: pulse-mic 1.2s infinite;
+    }
+
+    @keyframes pulse-mic {
+      0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
+      70% { box-shadow: 0 0 0 10px rgba(220, 38, 38, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+    }
+
+    .btn-send {
+      padding: 0 22px;
+      height: 52px;
+      border-radius: var(--radius-md);
+      background: var(--primary);
+      color: white;
+      border: none;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.2s, transform 0.1s;
+      flex-shrink: 0;
+    }
+
+    .btn-send:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-send:active {
+      transform: scale(0.98);
+    }
+
+    /* -----------------------------------------------------------------------
+       Right Panel: Family Dashboard
+       ----------------------------------------------------------------------- */
+    .family-panel-body {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      padding: 18px 20px;
+      gap: 18px;
+      overflow-y: auto;
+    }
+
+    /* Pulsing Red Alert Banner */
+    .alert-banner {
+      background: var(--status-red-bg);
+      border: 2px solid var(--status-red-border);
+      color: var(--status-red-text);
+      border-radius: var(--radius-md);
+      padding: 14px 18px;
+      display: none; /* Shown dynamically when high alert exists */
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .alert-banner.active {
+      display: flex;
+      animation: pulse-banner 1.8s infinite;
+    }
+
+    @keyframes pulse-banner {
+      0% {
+        box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5);
+      }
+      70% {
+        box-shadow: 0 0 0 10px rgba(220, 38, 38, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+      }
+    }
+
+    .alert-icon {
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .alert-content h4 {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .alert-content p {
+      font-size: 13px;
+      opacity: 0.95;
+    }
+
+    .alert-time {
+      font-size: 11px;
+      font-weight: 600;
+      opacity: 0.8;
+      margin-top: 4px;
+    }
+
+    /* Mood Badge Card */
+    .mood-card {
+      background: var(--card-subtle);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .mood-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .mood-emoji {
+      font-size: 28px;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--card-bg);
+      border-radius: 50%;
+      border: 1px solid var(--card-border);
+    }
+
+    .mood-details h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .mood-details .mood-badge {
+      display: inline-block;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .mood-symptoms {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+
+    /* Medicine Cards Section */
+    .section-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .med-cards-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .med-card {
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1.5px solid transparent;
+      transition: all 0.2s;
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Status variants */
+    .med-card.taken {
+      background: var(--status-green-bg);
+      border-color: var(--status-green-border);
+      color: var(--status-green-text);
+    }
+
+    .med-card.due-soon {
+      background: var(--status-amber-bg);
+      border-color: var(--status-amber-border);
+      color: var(--status-amber-text);
+    }
+
+    .med-card.missed {
+      background: var(--status-red-bg);
+      border-color: var(--status-red-border);
+      color: var(--status-red-text);
+    }
+
+    .med-card-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .med-card-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--card-bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .med-card-name {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .med-card-sub {
+      font-size: 12px;
+      opacity: 0.85;
+    }
+
+    .med-card-badge {
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      background: var(--card-bg);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Activity Timeline */
+    .timeline-container {
+      background: var(--card-subtle);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .timeline-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+      padding-bottom: 8px;
+      border-bottom: 1px dashed var(--card-border);
+    }
+
+    .timeline-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .timeline-item-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      background: var(--card-bg);
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .timeline-item-content {
+      flex: 1;
+    }
+
+    .timeline-item-text {
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .timeline-item-time {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .empty-state {
+      font-size: 13px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 12px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top App Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🧡</div>
+      <div>
+        <h1 class="brand-title">CareLoop - Alexa+ that looks after your parents</h1>
+        <p class="brand-subtitle">Streamable HTTP MCP · Local SQLite · Autonomous Elder Care</p>
+      </div>
+    </div>
+    <div class="header-pills">
+      <div class="badge-sync">
+        <span class="sync-dot"></span>
+        <span id="syncText">Live 2s Sync</span>
+      </div>
+      <button class="btn-reset-demo" onclick="resetDemo()" title="Clear logs and reset for demo">
+        ↺ Reset demo
+      </button>
+    </div>
+  </header>
+
+  <!-- 2-Column Responsive Layout -->
+  <main class="app-container">
+
+    <!-- ================================================================= -->
+    <!-- LEFT PANEL: Parent (Alexa+ simulator)                             -->
+    <!-- ================================================================= -->
+    <section class="panel-card" aria-label="Parent Alexa Simulator">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>🗣️</span> Parent (Alexa+ simulator)
+        </div>
+        <div class="panel-subtitle">Spoken voice or tap</div>
+      </div>
+
+      <div class="parent-panel-body">
+        <!-- 4 Quick Tap Chips -->
+        <div>
+          <div class="tap-chips-label">Tap to speak phrase</div>
+          <div class="tap-chips-grid">
+            <button class="tap-chip" onclick="handleChipClick('I took my BP tablet')">
+              <span>💊</span> I took my BP tablet
+            </button>
+            <button class="tap-chip" onclick="handleChipClick('I feel dizzy')">
+              <span>⚠️</span> I feel dizzy
+            </button>
+            <button class="tap-chip" onclick="handleChipClick('Did I miss anything?')">
+              <span>❓</span> Did I miss anything?
+            </button>
+            <button class="tap-chip" onclick="handleChipClick('How was my day?')">
+              <span>📋</span> How was my day?
+            </button>
+          </div>
+        </div>
+
+        <!-- Chat Stream Box -->
+        <div class="chat-stream" id="chatStream" role="log" aria-live="polite">
+          <div class="chat-bubble alexa">
+            <span class="bubble-speaker">Alexa+</span>
+            <div>Good day! I'm watching over your routine. Tell me when you take your medicines or how you feel.</div>
+          </div>
+        </div>
+
+        <!-- Input Bar with Web Speech API Mic -->
+        <form class="input-bar-container" onsubmit="event.preventDefault(); submitChatMessage();">
+          <input
+            type="text"
+            id="chatInput"
+            class="input-box"
+            placeholder="Type or click mic to speak..."
+            autocomplete="off"
+            aria-label="Parent speech message"
+          />
+
+          <!-- Web Speech API Mic Button -->
+          <button
+            type="button"
+            id="micBtn"
+            class="btn-mic"
+            title="Click to speak (Web Speech API)"
+            aria-label="Voice input"
+          >
+            <!-- SVG Microphone Icon -->
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </button>
+
+          <!-- Send Button -->
+          <button type="submit" class="btn-send" aria-label="Send message">
+            <span>Send</span>
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- ================================================================= -->
+    <!-- RIGHT PANEL: Family Dashboard                                     -->
+    <!-- ================================================================= -->
+    <section class="panel-card" aria-label="Family Dashboard">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>👨‍👩‍👧</span> Family dashboard
+        </div>
+        <div class="panel-subtitle" id="currentDateLabel">Today</div>
+      </div>
+
+      <div class="family-panel-body">
+        <!-- Pulsing Red Alert Banner for High Severity Alerts -->
+        <div id="highAlertBanner" class="alert-banner" role="alert">
+          <div class="alert-icon">🚨</div>
+          <div class="alert-content">
+            <h4>HIGH SEVERITY ALERT FLAGGED</h4>
+            <p id="highAlertText">A critical health or safety symptom was reported by your parent.</p>
+            <div id="highAlertTime" class="alert-time">Today</div>
+          </div>
+        </div>
+
+        <!-- Mood & Wellness Badge -->
+        <div>
+          <div class="section-title">
+            <span>Parent Wellness Status</span>
+          </div>
+          <div class="mood-card">
+            <div class="mood-info">
+              <div class="mood-emoji" id="moodEmoji">🙂</div>
+              <div class="mood-details">
+                <h4>Current Mood</h4>
+                <div class="mood-badge" id="moodBadgeText">Not recorded today</div>
+                <div class="mood-symptoms" id="moodSymptomsText">No symptoms reported</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scheduled Medicine Cards (Green taken, Amber due soon, Red missed) -->
+        <div>
+          <div class="section-title">
+            <span>Medication Adherence</span>
+            <span id="medCountsSummary" style="font-size: 11px; text-transform: none; font-weight: 600;">3 Scheduled</span>
+          </div>
+          <div class="med-cards-grid" id="medCardsContainer">
+            <div class="empty-state">Loading schedule...</div>
+          </div>
+        </div>
+
+        <!-- Activity Timeline -->
+        <div>
+          <div class="section-title">
+            <span>Activity Timeline</span>
+          </div>
+          <div class="timeline-container" id="timelineList">
+            <div class="empty-state">No activities recorded today yet.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ------------------------------------------------------------------- -->
+  <!-- Vanilla JavaScript Logic (No External CDN)                          -->
+  <!-- ------------------------------------------------------------------- -->
+  <script>
+    // State management
+    let lastDashboardData = null;
+    let isListening = false;
+    let recognition = null;
+
+    // -------------------------------------------------------------------------
+    // 1. Web Speech API (Microphone Voice Input)
+    // -------------------------------------------------------------------------
+    const micBtn = document.getElementById('micBtn');
+    const chatInput = document.getElementById('chatInput');
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      // Hide mic button if browser does not support Web Speech API
+      micBtn.style.display = 'none';
+      console.log('Web Speech API not supported in this browser; mic button hidden.');
+    } else {
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        isListening = true;
+        micBtn.classList.add('listening');
+        micBtn.setAttribute('title', 'Listening... Speak now');
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          chatInput.value = transcript;
+          submitChatMessage();
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn('Speech recognition error:', event.error);
+        stopListening();
+      };
+
+      recognition.onend = () => {
+        stopListening();
+      };
+
+      micBtn.addEventListener('click', () => {
+        if (isListening) {
+          recognition.stop();
+        } else {
+          try {
+            recognition.start();
+          } catch (err) {
+            console.error('Speech recognition start failed:', err);
+          }
+        }
+      });
+    }
+
+    function stopListening() {
+      isListening = false;
+      if (micBtn) {
+        micBtn.classList.remove('listening');
+        micBtn.setAttribute('title', 'Click to speak (Web Speech API)');
+      }
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. Chat & Tap Chips Interactions
+    // -------------------------------------------------------------------------
+    function handleChipClick(text) {
+      chatInput.value = text;
+      submitChatMessage();
+    }
+
+    async function submitChatMessage() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+
+      // 1. Append Parent chat bubble
+      appendChatBubble(text, 'parent');
+      chatInput.value = '';
+
+      // 2. Post to /api/chat
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: text })
+        });
+
+        if (!response.ok) {
+          throw new Error('Server returned ' + response.status);
+        }
+
+        const data = await response.json();
+        const reply = data.reply || "I didn't catch that.";
+        const tool = data.tool || null;
+
+        // Append Alexa+ chat bubble
+        appendChatBubble(reply, 'alexa', tool);
+
+        // Immediate dashboard refresh
+        fetchDashboard();
+      } catch (err) {
+        console.error('Chat error:', err);
+        appendChatBubble("Sorry, I had trouble connecting to the CareLoop server.", 'alexa');
+      }
+    }
+
+    function appendChatBubble(text, speaker, tool = null) {
+      const stream = document.getElementById('chatStream');
+      const bubble = document.createElement('div');
+      bubble.className = `chat-bubble ${speaker}`;
+
+      const speakerLabel = document.createElement('span');
+      speakerLabel.className = 'bubble-speaker';
+      speakerLabel.innerText = speaker === 'alexa' ? 'Alexa+' : 'Parent';
+      bubble.appendChild(speakerLabel);
+
+      const messageText = document.createElement('div');
+      messageText.innerText = text;
+      bubble.appendChild(messageText);
+
+      if (tool) {
+        const toolBadge = document.createElement('span');
+        toolBadge.className = 'bubble-tool';
+        toolBadge.innerText = `⚙️ ${tool}`;
+        bubble.appendChild(toolBadge);
+      }
+
+      stream.appendChild(bubble);
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    // -------------------------------------------------------------------------
+    // 3. Family Dashboard Polling & Rendering
+    // -------------------------------------------------------------------------
+    async function fetchDashboard() {
+      try {
+        const res = await fetch('/api/dashboard');
+        if (!res.ok) throw new Error('Dashboard fetch status: ' + res.status);
+        const data = await res.json();
+        lastDashboardData = data;
+        renderDashboard(data);
+      } catch (err) {
+        console.warn('Dashboard poll error:', err);
+      }
+    }
+
+    function renderDashboard(data) {
+      const { date, summary, schedule = [], med_logs = [], wellness_logs = [], alerts = [] } = data;
+
+      // Update Date Header
+      if (date) {
+        document.getElementById('currentDateLabel').innerText = date;
+      }
+
+      // 1. High Alert Banner Check (pulsing red alert banner when a high alert exists)
+      const highAlerts = alerts.filter(a => (a.severity || '').toLowerCase() === 'high');
+      const bannerEl = document.getElementById('highAlertBanner');
+      if (highAlerts.length > 0) {
+        const latestHigh = highAlerts[highAlerts.length - 1];
+        document.getElementById('highAlertText').innerText = latestHigh.reason;
+        document.getElementById('highAlertTime').innerText = `Flagged at ${latestHigh.created_at || 'today'}`;
+        bannerEl.classList.add('active');
+      } else {
+        bannerEl.classList.remove('active');
+      }
+
+      // 2. Mood & Wellness Badge
+      const emojiEl = document.getElementById('moodEmoji');
+      const badgeTextEl = document.getElementById('moodBadgeText');
+      const symptomsTextEl = document.getElementById('moodSymptomsText');
+
+      if (wellness_logs.length > 0) {
+        const latestWellness = wellness_logs[wellness_logs.length - 1];
+        const mood = latestWellness.mood || 'Recorded';
+        const symptoms = latestWellness.symptoms || 'None';
+
+        badgeTextEl.innerText = mood;
+        symptomsTextEl.innerText = symptoms && symptoms.trim() ? `Symptoms: ${symptoms}` : 'No adverse symptoms reported';
+
+        // Select expressive emoji based on mood
+        const moodLower = mood.toLowerCase();
+        if (moodLower.includes('dizzy') || moodLower.includes('fall') || moodLower.includes('unsteady')) {
+          emojiEl.innerText = '😵';
+        } else if (moodLower.includes('pain') || moodLower.includes('not well') || moodLower.includes('unwell')) {
+          emojiEl.innerText = '🤕';
+        } else if (moodLower.includes('calm') || moodLower.includes('good') || moodLower.includes('cheerful') || moodLower.includes('happy')) {
+          emojiEl.innerText = '😊';
+        } else {
+          emojiEl.innerText = '🙂';
+        }
+      } else {
+        emojiEl.innerText = '🙂';
+        badgeTextEl.innerText = 'Not checked in yet';
+        symptomsTextEl.innerText = 'No check-in recorded for today';
+      }
+
+      // 3. Medicine Cards (Green taken, Amber due soon, Red missed)
+      const takenList = (summary && summary.taken) ? summary.taken : med_logs;
+      const missedList = (summary && summary.missed) ? summary.missed : [];
+
+      const takenNames = new Set(takenList.map(t => (t.name || '').toLowerCase()));
+      const missedNames = new Set(missedList.map(m => (m.name || '').toLowerCase()));
+
+      const cardsContainer = document.getElementById('medCardsContainer');
+      cardsContainer.innerHTML = '';
+
+      let takenCount = 0;
+      let dueSoonCount = 0;
+      let missedCount = 0;
+
+      schedule.forEach(item => {
+        const name = item.name;
+        const time = item.time_hhmm;
+        const lowerName = (name || '').toLowerCase();
+
+        let statusClass = 'due-soon';
+        let statusBadge = 'Due soon';
+        let statusIcon = '🕒';
+        let subText = `Scheduled for ${time}`;
+
+        if (takenNames.has(lowerName)) {
+          statusClass = 'taken';
+          statusBadge = 'Taken';
+          statusIcon = '✓';
+          takenCount++;
+          // Find taken timestamp if available
+          const logEntry = takenList.find(t => (t.name || '').toLowerCase() === lowerName);
+          const timeStr = logEntry && logEntry.taken_at ? logEntry.taken_at.split(' ')[1] || logEntry.taken_at : time;
+          subText = `Taken today at ${timeStr}`;
+        } else if (missedNames.has(lowerName)) {
+          statusClass = 'missed';
+          statusBadge = 'Missed';
+          statusIcon = '✗';
+          missedCount++;
+          subText = `Missed (was scheduled for ${time})`;
+        } else {
+          dueSoonCount++;
+          statusBadge = 'Due soon';
+          subText = `Upcoming today at ${time}`;
+        }
+
+        const card = document.createElement('div');
+        card.className = `med-card ${statusClass}`;
+        card.innerHTML = `
+          <div class="med-card-left">
+            <div class="med-card-icon">${statusIcon}</div>
+            <div>
+              <div class="med-card-name">${escapeHtml(name)}</div>
+              <div class="med-card-sub">${escapeHtml(subText)}</div>
+            </div>
+          </div>
+          <div class="med-card-badge">${statusBadge}</div>
+        `;
+        cardsContainer.appendChild(card);
+      });
+
+      document.getElementById('medCountsSummary').innerText =
+        `${takenCount} Taken · ${dueSoonCount} Due · ${missedCount} Missed`;
+
+      // 4. Activity Timeline
+      renderTimeline({ med_logs, wellness_logs, alerts });
+    }
+
+    function renderTimeline({ med_logs, wellness_logs, alerts }) {
+      const container = document.getElementById('timelineList');
+      const events = [];
+
+      med_logs.forEach(m => {
+        events.push({
+          type: 'med',
+          icon: '💊',
+          title: `Medication taken: ${m.name}`,
+          time: m.taken_at || 'Today',
+          sortTime: m.taken_at || ''
+        });
+      });
+
+      wellness_logs.forEach(w => {
+        events.push({
+          type: 'wellness',
+          icon: '🩺',
+          title: `Wellness check: Mood "${w.mood}"${w.symptoms ? ' (' + w.symptoms + ')' : ''}`,
+          time: w.created_at || 'Today',
+          sortTime: w.created_at || ''
+        });
+      });
+
+      alerts.forEach(a => {
+        events.push({
+          type: 'alert',
+          icon: '🚨',
+          title: `[ALERT - ${(a.severity || 'high').toUpperCase()}] ${a.reason}`,
+          time: a.created_at || 'Today',
+          sortTime: a.created_at || ''
+        });
+      });
+
+      // Sort newest first
+      events.sort((a, b) => (b.sortTime > a.sortTime ? 1 : -1));
+
+      if (events.length === 0) {
+        container.innerHTML = '<div class="empty-state">No activities recorded today yet.</div>';
+        return;
+      }
+
+      container.innerHTML = '';
+      events.slice(0, 10).forEach(ev => {
+        const item = document.createElement('div');
+        item.className = 'timeline-item';
+        item.innerHTML = `
+          <div class="timeline-item-icon">${ev.icon}</div>
+          <div class="timeline-item-content">
+            <div class="timeline-item-text">${escapeHtml(ev.title)}</div>
+            <div class="timeline-item-time">${escapeHtml(ev.time)}</div>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. Reset Demo Action
+    // -------------------------------------------------------------------------
+    async function resetDemo() {
+      if (!confirm('Reset CareLoop demo? This will clear logs & alerts while keeping the medication schedule.')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/reset', { method: 'POST' });
+        if (res.ok) {
+          appendChatBubble("Demo reset complete: logs and alerts cleared.", 'alexa');
+          fetchDashboard();
+        }
+      } catch (err) {
+        console.error('Reset error:', err);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // -------------------------------------------------------------------------
+    // 5. Polling Interval (Every 2 seconds)
+    // -------------------------------------------------------------------------
+    fetchDashboard();
+    setInterval(fetchDashboard, 2000);
+  </script>
+</body>
+</html>
