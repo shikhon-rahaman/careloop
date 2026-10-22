@@ -1,0 +1,12 @@
+# CareLoop Friction Log
+
+This document tracks developer and user friction encountered while building, deploying, and integrating CareLoop.
+
+| Task | Steps | Expected | Actual | Severity | Workaround | Suggestion |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **FastMCP SDK Import (SDK v2)** | Import `FastMCP` from `mcp.server.fastmcp` under `mcp>=2.0.0` | Clean import of `FastMCP` server class | `ModuleNotFoundError: FastMCP was renamed to MCPServer in mcp 2.x` | Medium | Import `MCPServer` from `mcp.server.mcpserver` and alias to `FastMCP` | Provide backwards-compatible import alias in official SDK or document migration clearly in quickstarts |
+| **Streamable HTTP Starlette Mounting** | Mount MCP app at `/mcp` using `Starlette(routes=[Mount('/mcp', app)])` | POST requests to `/mcp` without trailing slash should execute directly | Starlette issues a `307 Temporary Redirect` to `/mcp/`, causing some non-browser POST clients to fail | Medium | Add both `Route('/mcp', endpoint=DirectASGI(mcp_subapp))` and `Mount('/mcp', app=mcp_subapp)` | Configure Starlette sub-apps with explicit zero-redirect path normalization |
+| **DNS Rebinding & Origin Protection** | Connect from `npx @modelcontextprotocol/inspector` on `localhost:5173` to `http://localhost:8000/mcp` | Seamless tool inspection | Request rejected with `421 Misdirected Request` due to default host validation | Low | Configure `TransportSecuritySettings(enable_dns_rebinding_protection=False)` for local dev environments | Explicitly allow standard inspector origin ports by default in dev mode |
+| **Intent Keyword Variation** | User clicks tap chip "Did I miss anything?" | Matches `check_missed_meds` intent | Keyword pattern only matched `\bmissed\b`, dropping "miss" to fallback | Low | Expanded intent regex to `\b(miss\|missed\|missing)\b` | Use stem-based token matching or lemmatization for rule-based conversational intents |
+| **Port Conflict on 8000** | Run `python server.py` when another dev service is using port 8000 | Server starts or informs user of port conflict | `OSError: [WinError 10048] address already in use` | Low | Added `PORT` environment variable support (`port = int(os.environ.get("PORT", 8000))`) | Default to 8000 but allow environment variable override |
+| *[Your Task]* | *[Steps to reproduce]* | *[What was expected]* | *[What actually happened]* | *[Low/Med/High]* | *[Temporary workaround]* | *[Permanent improvement suggestion]* |
