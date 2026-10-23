@@ -188,11 +188,12 @@ async def chat_endpoint(request: Request) -> JSONResponse:
         )
 
     # Resolve local server port to call own /mcp endpoint
-    port = request.url.port or int(os.environ.get("PORT", 8000))
+    server_info = request.scope.get("server")
+    port = server_info[1] if server_info else (request.url.port or int(os.environ.get("PORT", 8000)))
     host = "127.0.0.1"
     mcp_endpoint_url = f"http://{host}:{port}/mcp"
 
-    # Format human-readable call string: e.g. "MCP call: log_wellness(mood='Dizzy', symptoms='I feel dizzy')"
+    # Format human-readable call string: e.g. "MCP call: log_wellness(mood='dizzy')"
     arg_parts = [
         f"{k}='{v}'" if isinstance(v, str) else f"{k}={v}"
         for k, v in arguments.items()
@@ -207,9 +208,14 @@ async def chat_endpoint(request: Request) -> JSONResponse:
         result_data = await _invoke_mcp_client(mcp_endpoint_url, tool_name, arguments)
         status = "success"
     except Exception as exc:
-        print(f"[MCP Client Error] Failed to call {tool_name} over /mcp: {exc}")
-        result_data = {"error": str(exc)}
-        status = "error"
+        print(f"[MCP Client Warning] Failed to call {tool_name} over /mcp ({exc}). Falling back to tools.py directly.")
+        tool_fn = getattr(tools, tool_name, None)
+        if callable(tool_fn):
+            result_data = tool_fn(**arguments)
+            status = "fallback"
+        else:
+            result_data = {"error": str(exc)}
+            status = "error"
 
     # Construct friendly spoken response
     reply = format_reply(tool_name, arguments, result_data)
@@ -262,13 +268,13 @@ async def dashboard_endpoint(request: Request) -> JSONResponse:
 
 
 async def reset_endpoint(request: Request) -> JSONResponse:
-    """Clear today's logs and alerts while preserving medication schedule."""
+    """Clear today's logs and alerts, and reset demo schedule if in DEMO_MODE."""
     reset_db()
     mcp_call_history.clear()
     return JSONResponse(
         {
             "status": "success",
-            "message": "Logs and alerts cleared, medication schedule preserved.",
+            "message": "Logs and alerts cleared, demo state restored.",
             "mcp_logs": [],
         }
     )
