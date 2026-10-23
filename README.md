@@ -97,7 +97,15 @@ pip install -r requirements.txt
 Start the Starlette application and Streamable HTTP MCP server on port `8000`:
 
 ```bash
+# Standard mode
 python server.py
+
+# Or Demo Mode (seeds schedule times relative to now: -1h, +2h, +5h with 0 missed medicines)
+# Windows PowerShell:
+$env:DEMO_MODE="1"; python server.py
+
+# Linux / macOS / Bash:
+DEMO_MODE=1 python server.py
 ```
 
 Access the interfaces:
@@ -111,25 +119,32 @@ Access the interfaces:
 
 ## 6. Testing & Demonstrations
 
-### 1. Conversational Demo Script
+### 1. Automated Test Suite
+Run the full test suite (covering MCP Streamable HTTP tool calls, fallback to `tools.py`, adherence timing, and demo mode):
+
+```bash
+python -m unittest tests/test_careloop.py
+```
+
+### 2. Conversational Demo Script
 In a separate terminal, run the automated demo script:
 
 ```bash
 python scripts/demo.py
 ```
 This tests:
-1. `"I took my BP tablet"` (fuzzy-matched & logged)
+1. `"I took my BP tablet"` (fuzzy-matched & logged with schedule adherence)
 2. `"I had my Metformin"` (logged)
 3. `"I feel dizzy"` (wellness check + emergency family alert triggered)
 
-### 2. Unit & Integration Verification
+### 3. Tool Suite Self-Test
 Run the tool suite self-test:
 
 ```bash
 python tools.py
 ```
 
-### 3. Testing with MCP Inspector (`@modelcontextprotocol/inspector`)
+### 4. Testing with MCP Inspector (`@modelcontextprotocol/inspector`)
 You can inspect the tools using the official Model Context Protocol inspector:
 
 ```bash
