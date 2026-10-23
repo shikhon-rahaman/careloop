@@ -69,15 +69,31 @@ def main() -> None:
             if use_live_http:
                 res = send_via_http(msg)
             else:
-                from intents import match_intent
+                import tools
+                from intents import format_reply, match_intent
+
                 intent = match_intent(msg)
                 tool = intent["tool"]
                 args = intent["arguments"]
                 arg_str = ", ".join(f"{k}='{v}'" if isinstance(v, str) else f"{k}={v}" for k, v in args.items())
+
+                if tool == "log_medication":
+                    tool_res = tools.log_medication(**args)
+                elif tool == "log_wellness":
+                    tool_res = tools.log_wellness(**args)
+                elif tool == "check_missed_meds":
+                    tool_res = tools.check_missed_meds(**args)
+                elif tool == "get_daily_summary":
+                    tool_res = tools.get_daily_summary(**args)
+                else:
+                    tool_res = None
+
+                reply = format_reply(tool, args, tool_res)
                 res = {
                     "tool": tool,
+                    "arguments": args,
                     "mcp_call": f"MCP call: {tool}({arg_str})" if tool else None,
-                    "reply": f"Routed to {tool}" if tool else "Fallback guidance",
+                    "reply": reply,
                 }
 
             if res.get("mcp_call"):
