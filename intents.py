@@ -60,24 +60,26 @@ def _extract_wellness_info(text: str) -> tuple[str, str]:
     lower = text.lower()
 
     if "fell" in lower or "fall" in lower:
-        return "Unsteady", text.strip()
-    if "dizzy" in lower:
-        return "Dizzy", text.strip()
-    if "chest pain" in lower or "pain" in lower:
-        return "In pain", text.strip()
-    if "not well" in lower:
-        return "Unwell", text.strip()
+        return "unsteady", ""
+    if "dizzy" in lower or "dizziness" in lower:
+        return "dizzy", ""
+    if "chest pain" in lower:
+        return "chest pain", ""
+    if "pain" in lower:
+        return "in pain", ""
     if "bleed" in lower or "bleeding" in lower:
-        return "Bleeding", text.strip()
+        return "bleeding", ""
     if "breathe" in lower or "breath" in lower:
-        return "Short of breath", text.strip()
+        return "short of breath", ""
+    if "not well" in lower or "unwell" in lower:
+        return "unwell", ""
 
     feel_match = re.search(r"\b(?:feel|feeling)\s+(.+?)(?:\.|\!|\?|$)", text, re.IGNORECASE)
     if feel_match:
-        extracted_state = feel_match.group(1).strip()
-        return extracted_state.capitalize(), text.strip()
+        extracted_state = feel_match.group(1).strip().lower()
+        return extracted_state, ""
 
-    return "Neutral", text.strip()
+    return "neutral", ""
 
 
 def match_intent(text: str) -> dict[str, Any]:
@@ -112,9 +114,12 @@ def match_intent(text: str) -> dict[str, Any]:
     # 2. Wellness Check-in Intent
     if WELLNESS_INTENT_PATTERN.search(lower):
         mood, symptoms = _extract_wellness_info(clean_text)
+        arguments: dict[str, Any] = {"mood": mood}
+        if symptoms:
+            arguments["symptoms"] = symptoms
         return {
             "tool": "log_wellness",
-            "arguments": {"mood": mood, "symptoms": symptoms},
+            "arguments": arguments,
             "fallback_reply": None,
         }
 
@@ -154,10 +159,26 @@ def format_reply(
         return FALLBACK_REPLY
 
     if tool == "log_medication":
+        if result_data.get("message"):
+            return result_data["message"]
+
         name = result_data.get("name", arguments.get("name", "medication"))
         matched = result_data.get("matched_scheduled_name")
-        if matched:
+        sched_time = result_data.get("scheduled_time")
+        is_late = result_data.get("is_late", False)
+        is_on_time = result_data.get("is_on_time", False)
+        is_early = result_data.get("is_early", False)
+
+        if is_late:
+            time_display = sched_time or "the scheduled time"
+            return f"I've logged your {name}. It was due at {time_display}, so I've noted it as late."
+        elif is_on_time:
             return f"I've logged your {name}. Great job taking your medication on time!"
+        elif is_early:
+            time_display = sched_time or "the scheduled time"
+            return f"I've logged your {name}. It was due at {time_display}, so I've noted it as taken early."
+        elif matched:
+            return f"I've logged your {name}."
         return f"I've logged that you took {name}."
 
     if tool == "log_wellness":
