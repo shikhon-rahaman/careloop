@@ -1252,7 +1252,12 @@
         } else {
           dueSoonCount++;
           statusBadge = 'Due soon';
-          subText = `Upcoming today at ${time}`;
+          const nowStr = new Date().toTimeString().slice(0, 5);
+          if (time <= nowStr) {
+            subText = `Due now (scheduled for ${time})`;
+          } else {
+            subText = `Upcoming today at ${time}`;
+          }
         }
 
         const card = document.createElement('div');
