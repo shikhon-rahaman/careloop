@@ -31,6 +31,7 @@ from db import (
     insert_alert,
     insert_med_log,
     insert_wellness_log,
+    is_demo_mode,
     reset_db,
 )
 
@@ -231,6 +232,36 @@ def alert_family(
     }
 
 
+def _calculate_delay_minutes(taken_at_str: str, scheduled_hhmm: str) -> int:
+    """
+    Calculate the difference in minutes between taken_at time and scheduled time.
+    Positive value means taken_at is after scheduled_time (late).
+    Negative value means taken_at is before scheduled_time (early).
+    """
+    try:
+        if " " in taken_at_str:
+            t_str = taken_at_str.strip().split(" ")[1]
+        elif "T" in taken_at_str:
+            t_str = taken_at_str.strip().split("T")[1]
+        else:
+            t_str = taken_at_str.strip()
+
+        taken_parts = [int(p) for p in t_str.split(":")[:2]]
+        taken_minutes = taken_parts[0] * 60 + taken_parts[1]
+
+        sched_parts = [int(p) for p in scheduled_hhmm.strip().split(":")[:2]]
+        sched_minutes = sched_parts[0] * 60 + sched_parts[1]
+
+        diff = taken_minutes - sched_minutes
+        if diff < -720:
+            diff += 1440
+        elif diff > 720:
+            diff -= 1440
+        return diff
+    except Exception:
+        return 0
+
+
 def log_medication(
     name: str,
     taken_at: str | None = None,
@@ -238,6 +269,8 @@ def log_medication(
 ) -> dict[str, Any]:
     """
     Log medication intake with fuzzy matching against scheduled medicines.
+    Compares intake time against scheduled time. If more than 60 minutes late,
+    replies noting that it was late. Only marks and praises on time when it truly is.
 
     For example, "bp pill" fuzzy-matches to scheduled "BP tablet".
 
@@ -247,7 +280,7 @@ def log_medication(
         db_path: Optional custom SQLite database file path.
 
     Returns:
-        dict: Status, logged record id, matched scheduled name, confidence, and timestamp.
+        dict: Status, logged record id, matched scheduled name, schedule adherence info, confidence, and timestamp.
     """
     if not name or not name.strip():
         raise ValueError("Medication name cannot be empty.")
@@ -261,11 +294,46 @@ def log_medication(
     # Record under canonical scheduled name if matched, else record raw name
     canonical_name = matched_entry["name"] if matched_entry else name.strip()
 
+    # Calculate schedule adherence & delay
+    delay_minutes = 0
+    is_late = False
+    is_on_time = False
+    is_early = False
+    scheduled_time = None
+
+    if matched_entry:
+        scheduled_time = matched_entry["time_hhmm"]
+        delay_minutes = _calculate_delay_minutes(taken_at, scheduled_time)
+        if delay_minutes > 60:
+            is_late = True
+        elif -60 <= delay_minutes <= 60:
+            is_on_time = True
+        else:
+            is_early = True
+
     log_id = insert_med_log(
         name=canonical_name,
         taken_at=taken_at,
         db_path=db_path,
     )
+
+    if matched_entry:
+        if is_late:
+            message = (
+                f"I've logged your {canonical_name}. It was due at {scheduled_time}, "
+                f"so I've noted it as late."
+            )
+        elif is_on_time:
+            message = f"I've logged your {canonical_name}. Great job taking your medication on time!"
+        elif is_early:
+            message = (
+                f"I've logged your {canonical_name}. It was due at {scheduled_time}, "
+                f"so I've noted it as taken early."
+            )
+        else:
+            message = f"I've logged that you took {canonical_name}."
+    else:
+        message = f"Successfully logged '{canonical_name}'."
 
     return {
         "status": "success",
@@ -273,13 +341,14 @@ def log_medication(
         "name": canonical_name,
         "raw_input_name": name.strip(),
         "matched_scheduled_name": matched_entry["name"] if matched_entry else None,
-        "scheduled_time": matched_entry["time_hhmm"] if matched_entry else None,
+        "scheduled_time": scheduled_time,
+        "delay_minutes": delay_minutes if matched_entry else 0,
+        "is_late": is_late,
+        "is_on_time": is_on_time,
+        "is_early": is_early,
         "match_confidence": round(score, 2),
         "taken_at": taken_at,
-        "message": (
-            f"Successfully logged '{canonical_name}'"
-            + (f" (matched from '{name.strip()}', confidence: {score:.0%})" if matched_entry else "")
-        ),
+        "message": message,
     }
 
 
@@ -291,11 +360,11 @@ def log_wellness(
     """
     Record elder wellness check-in (mood and symptoms).
 
-    If symptoms contain dizzy, fell, fall, chest pain, can't breathe, or bleeding,
+    If mood or symptoms contain dizzy, fell, fall, chest pain, can't breathe, or bleeding,
     an automatic high-severity alert is dispatched to family.
 
     Parameters:
-        mood: Subjective mood rating/description (e.g., 'Good', 'Tired', 'Anxious').
+        mood: Subjective mood rating/description (e.g., 'Good', 'Tired', 'Anxious', 'dizzy').
         symptoms: Description of any symptoms experienced (e.g., 'dizzy and fell').
         db_path: Optional custom SQLite database file path.
 
@@ -315,11 +384,11 @@ def log_wellness(
         db_path=db_path,
     )
 
-    # Check for critical symptom triggers
+    # Check for critical symptom triggers across both mood and symptoms
     triggered_symptoms: list[str] = []
-    lower_symptoms = clean_symptoms.lower()
+    combined_symptoms = f"{mood} {clean_symptoms}".lower()
     for pattern in CRITICAL_SYMPTOM_PATTERNS:
-        match = re.search(pattern, lower_symptoms)
+        match = re.search(pattern, combined_symptoms)
         if match:
             triggered_symptoms.append(match.group(0))
 
@@ -327,7 +396,7 @@ def log_wellness(
     if triggered_symptoms:
         reason = (
             f"High-risk symptom detected ({', '.join(set(triggered_symptoms))}) "
-            f"during wellness check. Reported symptoms: '{clean_symptoms}'"
+            f"during wellness check. Reported symptoms: '{clean_symptoms or mood.strip()}'"
         )
         alert_result = alert_family(
             reason=reason,
@@ -376,6 +445,10 @@ def check_missed_meds(
     taken: list[dict[str, Any]] = []
     upcoming: list[dict[str, Any]] = []
 
+    # Threshold in minutes after which an untaken scheduled medication is considered missed.
+    # In demo mode, a 90-minute window prevents the 1-hour-ago dose from expiring to missed.
+    missed_grace_minutes = 90 if is_demo_mode() else 60
+
     for item in schedule:
         sched_name = item["name"]
         sched_time = item["time_hhmm"]
@@ -391,10 +464,12 @@ def check_missed_meds(
             "scheduled_time": sched_time,
         }
 
+        delay_minutes = _calculate_delay_minutes(ref_time, sched_time)
+
         if is_taken:
             taken.append(entry_info)
-        elif sched_time <= ref_time:
-            # Scheduled time has passed and no log exists
+        elif delay_minutes > missed_grace_minutes:
+            # Scheduled time has passed by more than the grace window and no log exists
             missed.append({
                 **entry_info,
                 "missed_by_hhmm": ref_time,
