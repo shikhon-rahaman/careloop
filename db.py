@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 # Default database file path (configurable via CARELOOP_DB_PATH environment variable)
 DEFAULT_DB_PATH = Path(
@@ -28,26 +30,58 @@ SEED_SCHEDULE = [
 ]
 
 
-def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
-    """Return an SQLite connection configured with dict-like row access."""
+def is_demo_mode() -> bool:
+    """Return True if DEMO_MODE environment variable is enabled ('1', 'true', or 'yes')."""
+    return os.environ.get("DEMO_MODE", "").strip().lower() in ("1", "true", "yes")
+
+
+def get_demo_schedule(ref_time: datetime | None = None) -> list[tuple[str, str]]:
+    """
+    Generate demo schedule relative to reference time (defaults to datetime.now()):
+      - One dose 1 hour ago
+      - One dose 2 hours from now
+      - One dose 5 hours from now
+    """
+    now = ref_time or datetime.now()
+    t_minus_1 = (now - timedelta(hours=1)).strftime("%H:%M")
+    t_plus_2 = (now + timedelta(hours=2)).strftime("%H:%M")
+    t_plus_5 = (now + timedelta(hours=5)).strftime("%H:%M")
+    return [
+        ("BP tablet", t_minus_1),
+        ("Metformin", t_plus_2),
+        ("Vitamin D", t_plus_5),
+    ]
+
+
+@contextmanager
+def get_connection(db_path: str | Path | None = None) -> Iterator[sqlite3.Connection]:
+    """Yield an SQLite connection configured with dict-like row access, closing it on context exit."""
     target_path = Path(db_path) if db_path else DEFAULT_DB_PATH
     conn = sqlite3.connect(target_path)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_db(db_path: str | Path | None = None) -> None:
     """
-    Initialize SQLite database tables and seed baseline schedule.
+    Initialize SQLite database tables and seed schedule.
     Creates:
       - schedule(id, name, time_hhmm)
       - med_logs(id, name, taken_at)
       - wellness_logs(id, mood, symptoms, created_at)
       - alerts(id, reason, severity, created_at)
-    Seeds:
-      - "BP tablet" 08:00
-      - "Metformin" 09:00
-      - "Vitamin D" 14:00
+
+    If DEMO_MODE=1, seeds schedule times relative to now:
+      - BP tablet: 1 hour ago
+      - Metformin: 2 hours from now
+      - Vitamin D: 5 hours from now
+    Otherwise seeds default schedule:
+      - BP tablet: 08:00
+      - Metformin: 09:00
+      - Vitamin D: 14:00
     """
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
@@ -98,27 +132,49 @@ def init_db(db_path: str | Path | None = None) -> None:
             """
         )
 
-        # Seed initial medications if not already present
-        for med_name, time_hhmm in SEED_SCHEDULE:
-            cursor.execute(
-                """
-                INSERT OR IGNORE INTO schedule (name, time_hhmm)
-                VALUES (?, ?)
-                """,
-                (med_name, time_hhmm),
-            )
+        # Seed medications according to demo mode or baseline
+        if is_demo_mode():
+            cursor.execute("DELETE FROM schedule")
+            for med_name, time_hhmm in get_demo_schedule():
+                cursor.execute(
+                    "INSERT INTO schedule (name, time_hhmm) VALUES (?, ?)",
+                    (med_name, time_hhmm),
+                )
+        else:
+            for med_name, time_hhmm in SEED_SCHEDULE:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO schedule (name, time_hhmm) VALUES (?, ?)",
+                    (med_name, time_hhmm),
+                )
 
         conn.commit()
 
 
 def reset_db(db_path: str | Path | None = None) -> None:
-    """Clear logs and alerts tables while keeping schedule intact."""
+    """
+    Clear logs and alerts tables while keeping schedule intact.
+    In DEMO_MODE=1, re-seeds schedule times relative to current now (-1h, +2h, +5h)
+    so the demo starts fresh with no missed medicines.
+    """
     init_db(db_path)
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM med_logs")
         cursor.execute("DELETE FROM wellness_logs")
         cursor.execute("DELETE FROM alerts")
+        if is_demo_mode():
+            cursor.execute("DELETE FROM schedule")
+            for med_name, time_hhmm in get_demo_schedule():
+                cursor.execute(
+                    "INSERT INTO schedule (name, time_hhmm) VALUES (?, ?)",
+                    (med_name, time_hhmm),
+                )
+        else:
+            for med_name, time_hhmm in SEED_SCHEDULE:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO schedule (name, time_hhmm) VALUES (?, ?)",
+                    (med_name, time_hhmm),
+                )
         conn.commit()
 
 
